@@ -1,0 +1,311 @@
+/* ═══════════════════════════════════════════
+   SIDEBAR — Apple Black, no scroll, mobile-fixed
+   ═══════════════════════════════════════════ */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Use 280px on phones but never overflow narrow screens */
+  width: min(280px, 86vw);
+  height: 100vh;
+  height: 100dvh;
+  background: #000000;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 50;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  /* iOS notch / status bar safe-area */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Open on mobile */
+.sidebar.open {
+  transform: translateX(0);
+}
+
+/* Desktop: sticky, push content to the right */
+@media (min-width: 1024px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    left: auto;
+    width: 260px;
+    transform: translateX(0);
+    flex-shrink: 0;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 30;
+  }
+}
+
+/* Lock body scroll while drawer is open on mobile (no JS needed) */
+@media (max-width: 1023px) {
+  body:has(.sidebar.open) {
+    overflow: hidden;
+    -webkit-overflow-scrolling: auto;
+  }
+}
+
+/* Top bar / main content safe-area helpers */
+.topbar-safe {
+  padding-top: max(env(safe-area-inset-top), 0.5rem);
+}
+
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+/* ── The outer flex wrapper (min-h-screen bg-gray-50 flex) ──
+   On desktop, we need the page to NOT be fixed height so main content scrolls.
+   We override Tailwind's min-h-screen on the root to use proper flex layout. */
+@media (min-width: 1024px) {
+  .min-h-screen.bg-gray-50.flex {
+    height: 100vh;
+    overflow: hidden; /* outer doesn't scroll */
+  }
+
+  /* Main area (flex-1 flex flex-col min-h-screen) must scroll, not the page */
+  .flex-1.flex.flex-col.min-h-screen {
+    height: 100vh;
+    overflow: hidden;
+    min-height: unset;
+  }
+
+  /* The actual page content area scrolls */
+  .flex-1.p-3.overflow-auto {
+    overflow-y: auto !important;
+    height: 100%;
+  }
+}
+
+/* Mobile: normal page scroll */
+@media (max-width: 1023px) {
+  .flex-1.flex.flex-col.min-h-screen {
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .flex-1.p-3.overflow-auto {
+    overflow: visible;
+    height: auto;
+  }
+}
+.sidebar-logo {
+  padding: 22px 20px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.sidebar-logo h1 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.sidebar-logo p {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 4px 0 0;
+  font-weight: 400;
+}
+
+/* Close button — mobile only */
+.sidebar-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sidebar-close-btn:hover { background: rgba(255, 255, 255, 0.14); }
+
+@media (min-width: 1024px) {
+  .sidebar-close-btn { display: none !important; }
+}
+
+/* ── User card ── */
+.sidebar-user {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #ffffff;
+}
+
+.user-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.user-role {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 1px;
+}
+
+/* ── Navigation ── */
+.sidebar-nav {
+  flex: 1;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Allow scrolling on small screens with many links — touch-smooth */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+.sidebar-nav::-webkit-scrollbar { width: 4px; }
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 4px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+  min-height: 44px; /* WCAG 2.5.5 touch target */
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+  letter-spacing: -0.1px;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-link:active { background: rgba(255, 255, 255, 0.14); }
+
+.sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+}
+
+.sidebar-link.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ── Footer ── */
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  letter-spacing: 0.1px;
+}
+
+/* ═══════════════════════════════════════════
+   MOBILE OVERLAY
+   ═══════════════════════════════════════════ */
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 40;
+}
+
+/* ═══════════════════════════════════════════
+   ALERT LIST scrollable (Dashboard usage)
+   ═══════════════════════════════════════════ */
+
+.alert-list.scrollable {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.alert-list.scrollable::-webkit-scrollbar { width: 5px; }
+.alert-list.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+.alert-list.scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* ═══════════════════════════════════════════
+   SEGMENTED CONTROL (Apple pill)
+   ═══════════════════════════════════════════ */
+
+.segmented-control {
+  display: flex;
+  background: #f2f2f7;
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 12px;
+  gap: 2px;
+}
+
+.segment {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  color: #3d3d3f;
+  font-weight: 400;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.segment.active {
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.10);
+  font-weight: 600;
+  color: #1d1d1f;
+}
