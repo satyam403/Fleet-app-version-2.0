@@ -1095,3 +1095,261 @@ export function buildInvoiceReportPdf(
 
   generatePdfReport(data);
 }
+
+/* ═════════════════════════════════════════════════════
+   INVENTORY UPDATES (AUDIT) REPORT
+   Two outputs from the same log data:
+     1. buildInventoryUpdatesReportPdf → browser print / Save-as-PDF
+     2. generateInventoryUpdatesPdfBlob → real Blob, used as the EmailJS
+        attachment that gets mailed to satyam@handatransportation.com
+═════════════════════════════════════════════════════ */
+
+export interface InventoryUpdateLogRow {
+  partName: string;
+  partNumber: string;
+  action: 'update' | 'add';
+  previousQty: number;
+  newQty: number;
+  change: number;
+  updatedBy: string;
+  updatedAt: string;
+  note: string;
+}
+
+function invUpdatesReportData(
+  logs: InventoryUpdateLogRow[],
+  period: string,
+  userName?: string,
+): ReportData {
+  const fmtDateTime = (s: string) => {
+    if (!s) return '—';
+    const d = new Date(s);
+    return isNaN(d.getTime())
+      ? '—'
+      : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const totalChanges = logs.length;
+  const adds = logs.filter(l => l.action === 'add').length;
+  const updates = totalChanges - adds;
+  const people = new Set(logs.map(l => l.updatedBy).filter(Boolean)).size;
+  const unitsAdded = logs.reduce((s, l) => s + Math.max(l.change, 0), 0);
+  const unitsRemoved = logs.reduce((s, l) => s + Math.max(-l.change, 0), 0);
+
+  // Per-person rollup
+  const byPerson: Record<string, { name: string; count: number; net: number }> = {};
+  logs.forEach(l => {
+    const k = l.updatedBy || 'Unknown';
+    if (!byPerson[k]) byPerson[k] = { name: k, count: 0, net: 0 };
+    byPerson[k].count += 1;
+    byPerson[k].net += l.change;
+  });
+
+  return {
+    meta: {
+      title:       'Inventory Update Report',
+      subtitle:    period,
+      companyName: 'Handa Transportation',
+      period,
+      generatedBy: userName,
+    },
+    sections: [
+      {
+        heading: 'Summary',
+        summaryCards: [
+          { label: 'Total Changes', value: String(totalChanges), color: '#1e40af' },
+          { label: 'Quantity Updates', value: String(updates), color: '#6d28d9' },
+          { label: 'New Parts', value: String(adds), color: '#15803d' },
+          { label: 'People', value: String(people), color: '#0f766e' },
+          { label: 'Units Added', value: `+${unitsAdded}`, color: '#15803d' },
+          { label: 'Units Removed', value: `-${unitsRemoved}`, color: '#b91c1c' },
+        ],
+      },
+      {
+        heading: 'Changes by Person',
+        tables: [{
+          heading: `${Object.keys(byPerson).length} people`,
+          columns: [
+            { label: 'Updated By', key: 'name', bold: true },
+            { label: 'Changes',    key: 'count', align: 'right', mono: true },
+            { label: 'Net Qty',    key: 'net',   align: 'right', mono: true, bold: true },
+          ],
+          rows: Object.values(byPerson)
+            .sort((a, b) => b.count - a.count)
+            .map(p => ({ name: p.name, count: String(p.count), net: (p.net >= 0 ? '+' : '') + p.net })),
+        }],
+      },
+      {
+        heading: 'All Updates (Detailed)',
+        tables: [{
+          heading: `${totalChanges} records`,
+          columns: [
+            { label: 'Date / Time', key: 'date',   mono: true, width: '120px' },
+            { label: 'Part Name',   key: 'part',   bold: true },
+            { label: 'Part #',      key: 'pno',    mono: true, width: '90px' },
+            { label: 'Action',      key: 'action', width: '60px' },
+            { label: 'Prev',        key: 'prev',   align: 'right', mono: true, width: '50px' },
+            { label: 'New',         key: 'newq',   align: 'right', mono: true, bold: true, width: '50px' },
+            { label: 'Change',      key: 'chg',    align: 'right', mono: true, width: '60px' },
+            { label: 'By',          key: 'by',     bold: true, width: '100px' },
+            { label: 'Note',        key: 'note' },
+          ],
+          rows: logs
+            .slice()
+            .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+            .map(l => ({
+              date:   fmtDateTime(l.updatedAt),
+              part:   l.partName || '—',
+              pno:    l.partNumber || '—',
+              action: l.action === 'add' ? 'Added' : 'Update',
+              prev:   String(l.previousQty),
+              newq:   String(l.newQty),
+              chg:    (l.change >= 0 ? '+' : '') + l.change,
+              by:     l.updatedBy || '—',
+              note:   l.note || '—',
+            })),
+        }],
+      },
+    ],
+  };
+}
+
+/** Opens the browser print dialog with a styled Inventory Update report. */
+export function buildInventoryUpdatesReportPdf(
+  logs: InventoryUpdateLogRow[],
+  period: string,
+  userName?: string,
+): void {
+  generatePdfReport(invUpdatesReportData(logs, period, userName));
+}
+
+/** Renders the same report into a real PDF Blob (pdf-lib) for emailing. */
+export async function generateInventoryUpdatesPdfBlob(
+  logs: InventoryUpdateLogRow[],
+  period: string,
+  userName?: string,
+): Promise<Blob> {
+  const pdfDoc = await PDFDocument.create();
+  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Landscape Letter — the detail table is wide.
+  const pageWidth  = 792;
+  const pageHeight = 612;
+  const margin     = 36;
+  const lineHeight = 15;
+
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let y    = pageHeight - margin;
+
+  const navy = rgb(0.118, 0.251, 0.686);
+  const grey = rgb(0.4, 0.4, 0.4);
+
+  const ensure = (req = 24) => {
+    if (y < margin + req) {
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
+    }
+  };
+
+  const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + '…' : s);
+  const fmtDateTime = (s: string) => {
+    if (!s) return '—';
+    const d = new Date(s);
+    return isNaN(d.getTime())
+      ? '—'
+      : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+
+  // ── Header ──
+  page.drawText('INVENTORY UPDATE REPORT', { x: margin, y, size: 18, font: fontBold, color: navy });
+  y -= 22;
+  page.drawText('Handa Transportation', { x: margin, y, size: 11, font, color: grey });
+  page.drawText(`Generated: ${new Date().toLocaleString('en-US')}`, { x: pageWidth - margin - 220, y, size: 9, font, color: grey });
+  y -= 14;
+  page.drawText(`Period: ${period}${userName ? `   ·   By: ${userName}` : ''}`, { x: margin, y, size: 9, font, color: grey });
+  y -= 22;
+
+  // ── Summary line ──
+  const adds = logs.filter(l => l.action === 'add').length;
+  const unitsAdded = logs.reduce((s, l) => s + Math.max(l.change, 0), 0);
+  const unitsRemoved = logs.reduce((s, l) => s + Math.max(-l.change, 0), 0);
+  const people = new Set(logs.map(l => l.updatedBy).filter(Boolean)).size;
+  page.drawText(
+    `Total changes: ${logs.length}   |   New parts: ${adds}   |   People: ${people}   |   Units +${unitsAdded} / -${unitsRemoved}`,
+    { x: margin, y, size: 10, font: fontBold, color: rgb(0.1, 0.1, 0.1) },
+  );
+  y -= 22;
+
+  // ── Table columns (x offsets) ──
+  const cols = [
+    { key: 'date',   label: 'Date / Time', x: margin },
+    { key: 'part',   label: 'Part Name',   x: margin + 115 },
+    { key: 'pno',    label: 'Part #',      x: margin + 255 },
+    { key: 'action', label: 'Action',      x: margin + 320 },
+    { key: 'prev',   label: 'Prev',        x: margin + 375 },
+    { key: 'newq',   label: 'New',         x: margin + 415 },
+    { key: 'chg',    label: 'Change',      x: margin + 455 },
+    { key: 'by',     label: 'By',          x: margin + 510 },
+    { key: 'note',   label: 'Note',        x: margin + 600 },
+  ] as const;
+
+  const drawHeaderRow = () => {
+    page.drawRectangle({ x: margin - 4, y: y - 4, width: pageWidth - margin * 2 + 8, height: 18, color: rgb(0.118, 0.251, 0.686) });
+    cols.forEach(c => page.drawText(c.label, { x: c.x, y, size: 8, font: fontBold, color: rgb(1, 1, 1) }));
+    y -= lineHeight + 3;
+  };
+
+  drawHeaderRow();
+
+  const sorted = logs.slice().sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+
+  sorted.forEach((l, idx) => {
+    ensure(18);
+    if (y === pageHeight - margin) drawHeaderRow(); // fresh page → repeat header
+    if (idx % 2 === 0) {
+      page.drawRectangle({ x: margin - 4, y: y - 3, width: pageWidth - margin * 2 + 8, height: 14, color: rgb(0.96, 0.97, 0.99) });
+    }
+    const chg = (l.change >= 0 ? '+' : '') + l.change;
+    const chgColor = l.change > 0 ? rgb(0.08, 0.5, 0.24) : l.change < 0 ? rgb(0.72, 0.11, 0.11) : grey;
+    const row: Record<string, { text: string; color?: any }> = {
+      date:   { text: fmtDateTime(l.updatedAt) },
+      part:   { text: clip(l.partName || '—', 28) },
+      pno:    { text: clip(l.partNumber || '—', 13) },
+      action: { text: l.action === 'add' ? 'Added' : 'Update' },
+      prev:   { text: String(l.previousQty) },
+      newq:   { text: String(l.newQty) },
+      chg:    { text: chg, color: chgColor },
+      by:     { text: clip(l.updatedBy || '—', 16) },
+      note:   { text: clip(l.note || '—', 24) },
+    };
+    cols.forEach(c => {
+      const cell = row[c.key];
+      page.drawText(cell.text, { x: c.x, y, size: 8, font, color: cell.color ?? rgb(0.2, 0.2, 0.2) });
+    });
+    y -= lineHeight;
+  });
+
+  if (sorted.length === 0) {
+    page.drawText('No inventory updates recorded for this period.', { x: margin, y, size: 10, font, color: grey });
+  }
+
+  const bytes = await pdfDoc.save();
+  const buf = new ArrayBuffer(bytes.length);
+  new Uint8Array(buf).set(bytes);
+  return new Blob([buf], { type: 'application/pdf' });
+}
+
+/** Base64 (no data: prefix) — EmailJS attachments want the raw base64 string. */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      // strip "data:application/pdf;base64,"
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}

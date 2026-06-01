@@ -471,6 +471,11 @@ export async function updateInventoryItem(
     if (data.pricePerPart    !== undefined) fields[INVENTORY_FIELDS.pricePerPart]    = data.pricePerPart;
     if (data.shelfLocation   !== undefined) fields[INVENTORY_FIELDS.shelfLocation]   = data.shelfLocation;
     if (data.partShelfAndRow !== undefined) fields[INVENTORY_FIELDS.partShelfAndRow] = data.partShelfAndRow;
+    // Audit stamp: who touched the row and when. The Inventory Management page
+    // always passes these so "Last Modified By" reflects the mechanic, not a
+    // bare timestamp.
+    if (data.lastModifiedBy  !== undefined) fields[INVENTORY_FIELDS.lastModifiedBy]  = data.lastModifiedBy;
+    if (data.lastModified    !== undefined) fields[INVENTORY_FIELDS.lastModified]    = data.lastModified;
 
     const response = await fetch(`${AIRTABLE_INVENTORY_URL}/${recordId}`, {
       method: 'PATCH',
@@ -510,6 +515,138 @@ export async function deleteInventoryItem(recordId: string): Promise<void> {
     console.log('✅ Inventory item deleted');
   } catch (error) {
     console.error('💥 Airtable delete error:', error);
+    throw error;
+  }
+}
+
+// ═════════════════════════════════════════════
+// INVENTORY UPDATE LOG (audit trail)
+// ─────────────────────────────────────────────
+// Every quantity change / new part from the Inventory Management page is
+// appended here as one row. The Reports → Inventory Updates tab reads this
+// table to show *who* changed *what*, *when*, and by how much, and to build
+// the PDF that gets emailed.
+//
+// 🛠️  Create this table in your Airtable base once, named exactly
+//     "Inventory Updates", with these columns (all plain text/number/date):
+//       Part Name (text) · Part Number (text) · Action (text)
+//       Previous Qty (number) · New Qty (number) · Change (number)
+//       Updated By (text) · Updated At (date, include time) · Note (text)
+// ═════════════════════════════════════════════
+
+const INVENTORY_LOG_TABLE = 'Inventory Updates';
+const AIRTABLE_INVENTORY_LOG_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(INVENTORY_LOG_TABLE)}`;
+
+const INVENTORY_LOG_FIELDS = {
+  partName:    'Part Name',
+  partNumber:  'Part Number',
+  action:      'Action',        // 'update' | 'add'
+  previousQty: 'Previous Qty',
+  newQty:      'New Qty',
+  change:      'Change',         // newQty - previousQty
+  updatedBy:   'Updated By',
+  updatedAt:   'Updated At',
+  note:        'Note',
+};
+
+export interface InventoryUpdateLog {
+  id: string;
+  partName: string;
+  partNumber: string;
+  action: 'update' | 'add';
+  previousQty: number;
+  newQty: number;
+  change: number;
+  updatedBy: string;
+  updatedAt: string;
+  note: string;
+}
+
+function mapInventoryLogRecord(record: { id: string; fields: Record<string, any> }): InventoryUpdateLog {
+  const f = record.fields;
+  return {
+    id:          record.id || '',
+    partName:    f[INVENTORY_LOG_FIELDS.partName] ?? '',
+    partNumber:  f[INVENTORY_LOG_FIELDS.partNumber] ?? '',
+    action:      (f[INVENTORY_LOG_FIELDS.action] ?? 'update') as 'update' | 'add',
+    previousQty: Number(f[INVENTORY_LOG_FIELDS.previousQty] ?? 0),
+    newQty:      Number(f[INVENTORY_LOG_FIELDS.newQty] ?? 0),
+    change:      Number(f[INVENTORY_LOG_FIELDS.change] ?? 0),
+    updatedBy:   f[INVENTORY_LOG_FIELDS.updatedBy] ?? '',
+    updatedAt:   f[INVENTORY_LOG_FIELDS.updatedAt] ?? '',
+    note:        f[INVENTORY_LOG_FIELDS.note] ?? '',
+  };
+}
+
+export async function addInventoryUpdateLog(
+  entry: Omit<InventoryUpdateLog, 'id'>
+): Promise<void> {
+  try {
+    const response = await fetch(AIRTABLE_INVENTORY_LOG_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        records: [{
+          fields: {
+            [INVENTORY_LOG_FIELDS.partName]:    entry.partName,
+            [INVENTORY_LOG_FIELDS.partNumber]:  entry.partNumber,
+            [INVENTORY_LOG_FIELDS.action]:      entry.action,
+            [INVENTORY_LOG_FIELDS.previousQty]: entry.previousQty,
+            [INVENTORY_LOG_FIELDS.newQty]:      entry.newQty,
+            [INVENTORY_LOG_FIELDS.change]:      entry.change,
+            [INVENTORY_LOG_FIELDS.updatedBy]:   entry.updatedBy,
+            [INVENTORY_LOG_FIELDS.updatedAt]:   entry.updatedAt,
+            [INVENTORY_LOG_FIELDS.note]:        entry.note,
+          },
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      // A missing "Inventory Updates" table shouldn't block the actual
+      // inventory write — surface it but don't throw the whole save away.
+      console.error('❌ Inventory log write failed:', error);
+      throw new Error(`Failed to log inventory update: ${error?.error?.message || 'Unknown error'}`);
+    }
+    console.log('✅ Inventory update logged');
+  } catch (error) {
+    console.error('💥 Inventory log error:', error);
+    throw error;
+  }
+}
+
+export async function getInventoryUpdateLog(): Promise<InventoryUpdateLog[]> {
+  try {
+    const allRecords: InventoryUpdateLog[] = [];
+    let offset: string | undefined = undefined;
+
+    do {
+      const url = new URL(AIRTABLE_INVENTORY_LOG_URL);
+      if (offset) url.searchParams.set('offset', offset);
+
+      const response = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${AIRTABLE_API_KEY}` },
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(`Failed to fetch inventory log: ${error?.error?.message || 'Unknown error'}`);
+      }
+
+      const result = await response.json();
+      allRecords.push(...(result.records ?? []).map(mapInventoryLogRecord));
+      offset = result.offset;
+    } while (offset);
+
+    // Newest first.
+    allRecords.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+    return allRecords;
+  } catch (error) {
+    console.error('💥 Inventory log fetch error:', error);
     throw error;
   }
 }

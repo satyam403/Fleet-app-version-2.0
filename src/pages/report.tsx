@@ -19,7 +19,11 @@ import {
   buildWorkOrderReportPdf,
   buildInspectionReportPdf,
   buildInvoiceReportPdf,
+  buildInventoryUpdatesReportPdf,
 } from "../services/pdf";
+import { getInventoryUpdateLog, type InventoryUpdateLog } from "../services/airtable";
+import { sendInventoryReportEmail, isEmailConfigured, INVENTORY_REPORT_RECIPIENT } from "../services/inventoryEmail";
+import { Boxes, Mail } from "lucide-react";
 
 const API_BASE = apiUrl("/users");
 
@@ -997,13 +1001,139 @@ function InvoiceReport({ authFetch, userName }: { authFetch: AuthFetch; userName
 }
 
 /* ═══════════════════════════════════════════════════
+   INVENTORY UPDATES (AUDIT) REPORT
+   Source: Airtable "Inventory Updates" table — who changed which part's
+   quantity, when, and by how much. Generates a PDF and emails it to
+   satyam@handatransportation.com.
+═══════════════════════════════════════════════════ */
+function InventoryUpdatesReport({ userName }: { userName?: string }) {
+  const { t } = useTranslation();
+  const [period, setPeriod] = useState<Period>("monthly");
+  const [mOff, setMOff] = useState(0); const [wOff, setWOff] = useState(0); const [yOff, setYOff] = useState(0);
+  const [logs, setLogs] = useState<InventoryUpdateLog[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const label = periodLabel(period, mOff, wOff, yOff);
+
+  useEffect(() => {
+    setLoading(true);
+    getInventoryUpdateLog()
+      .then(setLogs)
+      .catch(err => { console.error(err); toast.error(t("inventory.manage.logLoadFailed")); })
+      .finally(() => setLoading(false));
+  }, [t]);
+
+  const filtered = useMemo(
+    () => filterByPeriod(logs, "updatedAt", period, mOff, wOff, yOff),
+    [logs, period, mOff, wOff, yOff],
+  );
+
+  const summary = useMemo(() => {
+    const adds = filtered.filter(l => l.action === "add").length;
+    const people = new Set(filtered.map(l => l.updatedBy).filter(Boolean)).size;
+    const unitsAdded = filtered.reduce((s, l) => s + Math.max(l.change, 0), 0);
+    const unitsRemoved = filtered.reduce((s, l) => s + Math.max(-l.change, 0), 0);
+    return { total: filtered.length, adds, updates: filtered.length - adds, people, unitsAdded, unitsRemoved };
+  }, [filtered]);
+
+  async function emailReport() {
+    if (!isEmailConfigured()) { toast.error(t("inventory.manage.emailNotConfigured")); return; }
+    try {
+      setEmailing(true);
+      await sendInventoryReportEmail(filtered, label, userName);
+      toast.success(t("inventory.manage.emailSent", { email: INVENTORY_REPORT_RECIPIENT }));
+    } catch (e) {
+      console.error(e);
+      toast.error(t("inventory.manage.emailFailed"));
+    } finally {
+      setEmailing(false);
+    }
+  }
+
+  return (
+    <div className="rp-fade">
+      <div className="rp-filters">
+        <PeriodNav period={period} setPeriod={setPeriod} mOff={mOff} setMOff={setMOff} wOff={wOff} setWOff={setWOff} yOff={yOff} setYOff={setYOff} />
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+          <button className="rp-pdf" onClick={() => buildInventoryUpdatesReportPdf(filtered, label, userName)}>
+            <Printer size={12} /> PDF
+          </button>
+          <button className="rp-pdf" style={{ background: C.blue, color: "#fff", borderColor: C.blue }} onClick={emailReport} disabled={emailing}>
+            {emailing ? <Loader2 size={12} className="rp-spin" /> : <Mail size={12} />} {t("inventory.manage.emailReport")}
+          </button>
+        </div>
+      </div>
+
+      {loading && <Spin text={t("inventory.manage.loadingLog")} />}
+      {!loading && <>
+        <StatCards stats={[
+          { l: t("inventory.manage.totalChanges"), v: String(summary.total), c: C.blue, bg: C.blueBg, bd: C.blueBdr },
+          { l: t("inventory.manage.qtyUpdates"), v: String(summary.updates), c: C.purple, bg: C.purpBg, bd: C.purpBdr },
+          { l: t("inventory.manage.newParts"), v: String(summary.adds), c: C.green, bg: C.greenBg, bd: C.greenBdr },
+          { l: t("inventory.manage.people"), v: String(summary.people), c: C.teal, bg: C.tealBg, bd: C.tealBdr },
+          { l: t("inventory.manage.unitsAdded"), v: `+${summary.unitsAdded}`, c: C.green, bg: C.greenBg, bd: C.greenBdr },
+          { l: t("inventory.manage.unitsRemoved"), v: `-${summary.unitsRemoved}`, c: C.red, bg: C.redBg, bd: C.redBdr },
+        ]} />
+
+        {filtered.length === 0 ? <Empty text={t("inventory.manage.noLogForPeriod", { period: label })} /> : <>
+          <Divider label={t("inventory.manage.allUpdates")} />
+          <div className="rp-card">
+            <div className="rp-card-hd">
+              <Boxes size={13} color={C.blue} />
+              <span className="rp-card-title">{t("inventory.manage.title")}</span>
+              <span style={{ fontSize: 10, color: C.mutedFg }}>{filtered.length} {t("inventory.manage.records")}</span>
+            </div>
+            <div className="rp-tw">
+              <table className="rp-tbl">
+                <thead><tr>
+                  <th>{t("inventory.manage.dateTime")}</th>
+                  <th>{t("inventory.manage.part")}</th>
+                  <th>{t("inventory.manage.action")}</th>
+                  <th>{t("inventory.manage.prev")}</th>
+                  <th>{t("inventory.manage.newQ")}</th>
+                  <th>{t("inventory.manage.change")}</th>
+                  <th>{t("inventory.manage.by")}</th>
+                  <th>{t("inventory.manage.note")}</th>
+                </tr></thead>
+                <tbody>
+                  {filtered.map(l => {
+                    const chgColor = l.change > 0 ? C.green : l.change < 0 ? C.red : C.mutedFg;
+                    return (
+                      <tr key={l.id}>
+                        <td className="rp-mono">{fmtD(l.updatedAt)}</td>
+                        <td style={{ fontWeight: 700 }}>{l.partName || l.partNumber || "—"}</td>
+                        <td>{l.action === "add" ? t("inventory.manage.added") : t("inventory.manage.update")}</td>
+                        <td className="rp-mono">{l.previousQty}</td>
+                        <td className="rp-mono" style={{ fontWeight: 700 }}>{l.newQty}</td>
+                        <td className="rp-mono" style={{ color: chgColor, fontWeight: 700 }}>{l.change >= 0 ? "+" : ""}{l.change}</td>
+                        <td style={{ fontWeight: 600 }}>{l.updatedBy || "—"}</td>
+                        <td style={{ color: C.mutedFg }}>{l.note || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="rp-total">
+              <span>{t("inventory.manage.records")}: <span className="rp-mono">{filtered.length}</span></span>
+              <span>{t("inventory.manage.unitsAdded")}: <span className="rp-mono" style={{ color: C.green }}>+{summary.unitsAdded}</span></span>
+              <span>{t("inventory.manage.unitsRemoved")}: <span className="rp-mono" style={{ color: C.red }}>-{summary.unitsRemoved}</span></span>
+            </div>
+          </div>
+        </>}
+      </>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    MAIN PAGE
 ═══════════════════════════════════════════════════ */
 export default function ReportsPage() {
   const { t } = useTranslation();
   const { user, authFetch } = useAuth();
   const isAdmin = (user?.role || "").toLowerCase().includes("admin");
-  const [tab, setTab] = useState<"inventory" | "workorder" | "inspection" | "invoice">("inventory");
+  const [tab, setTab] = useState<"inventory" | "updates" | "workorder" | "inspection" | "invoice">("inventory");
 
   if (!isAdmin) return (
     <><style>{CSS}</style>
@@ -1024,6 +1154,7 @@ export default function ReportsPage() {
             <div className="rp-nav">
               {([
                 { val: "inventory" as const, label: `📦 ${t("reports.usage")}` },
+                { val: "updates" as const, label: `📝 ${t("inventory.manage.updatesTab")}` },
                 { val: "workorder" as const, label: `🔧 ${t("reports.workOrders")}` },
                 { val: "inspection" as const, label: `✅ ${t("reports.inspections")}` },
                 { val: "invoice" as const, label: `💰 ${t("reports.invoices")}` },
@@ -1036,6 +1167,7 @@ export default function ReportsPage() {
         <div className="rp-body">
           <div className="rp-body-inner">
             {tab === "inventory" && <InventoryReport authFetch={authFetch} userName={user?.name} />}
+            {tab === "updates" && <InventoryUpdatesReport userName={user?.name} />}
             {tab === "workorder" && <WorkOrderReport authFetch={authFetch} userName={user?.name} />}
             {tab === "inspection" && <InspectionReport authFetch={authFetch} userName={user?.name} />}
             {tab === "invoice" && <InvoiceReport authFetch={authFetch} userName={user?.name} />}

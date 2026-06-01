@@ -15,6 +15,7 @@ const Inspection         = lazy(() => import("./pages/InspectionDOT").then(m => 
 const Inspectionself     = lazy(() => import("./pages/Inspection").then(m => ({ default: m.Inspectionself })));
 const WorkOrders         = lazy(() => import("./pages/WorkOrders").then(m => ({ default: m.WorkOrders })));
 const Inventory          = lazy(() => import("./pages/Inventory").then(m => ({ default: m.Inventory })));
+const InventoryManagement = lazy(() => import("./pages/InventoryManagement").then(m => ({ default: m.InventoryManagement })));
 const Settings           = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
 //const Geofencing         = lazy(() => import("./pages/Geofencing").then(m => ({ default: m.Geofencing })));
 const PurchaseOrder      = lazy(() => import("./pages/BillsandReceipt").then(m => ({ default: m.PurchaseOrder })));
@@ -78,6 +79,7 @@ export const router = createBrowserRouter([
       { path: "work-orders",           element: lazyEl(<WorkOrders />) },
       { path: "complete-work-order",   element: lazyEl(<WorkOrderComplete />) },
       { path: "inventory",             element: lazyEl(<Inventory />) },
+      { path: "inventory-management",  element: lazyEl(<InventoryManagement />) },
       { path: "settings",              element: lazyEl(<Settings />) },
       { path: "timesheet",             element: lazyEl(<Timesheet />) },
       { path: "reports",               element: lazyEl(<ReportsPage />) },
