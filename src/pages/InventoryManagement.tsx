@@ -7,28 +7,38 @@ import {
   Mail, FileText, Check, X, Boxes,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import {
-  getInventory,
-  updateInventoryItem,
-  addInventoryItem,
-  addInventoryUpdateLog,
-  getInventoryUpdateLog,
-  type InventoryItem,
-} from "../services/airtable";
+import { apiUrl } from "../config";
 import {
   sendInventoryReportEmail,
   isEmailConfigured,
   INVENTORY_REPORT_RECIPIENT,
 } from "../services/inventoryEmail";
+import type { InventoryUpdateLogRow } from "../services/pdf";
 
 const LOW_STOCK = 10;
 
+// Shape returned by GET /users/getInventoryManage
+interface InvItem {
+  id: string;
+  partName: string;
+  partNumber: string;
+  description: string;
+  type: string;
+  manufacturer: string;
+  quantity: number;
+  used: number;
+  available: number;
+  pricePerPart: number;
+  shelfLocation: string;
+  lastModifiedBy: string;
+  lastModified: string;
+}
+
 export function InventoryManagement() {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  const who = user?.name || user?.email || "Unknown";
+  const { authFetch } = useAuth();
 
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [items, setItems] = useState<InvItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -37,15 +47,17 @@ export function InventoryManagement() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getInventory();
-      setItems(data);
+      const res = await authFetch(apiUrl("/users/getInventoryManage"));
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json().catch(() => ({} as any));
+      setItems(Array.isArray(json?.data) ? json.data : []);
     } catch (e) {
       console.error(e);
       toast.error(t("inventory.failedToLoad"));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [authFetch, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -66,36 +78,21 @@ export function InventoryManagement() {
     return { total, low, out, units };
   }, [items]);
 
-  // Optimistically patch a single row after a successful save.
-  const patchItem = (id: string, patch: Partial<InventoryItem>) =>
+  const patchItem = (id: string, patch: Partial<InvItem>) =>
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patch } : it)));
 
-  async function handleSaveQty(item: InventoryItem, newQty: number, note: string) {
-    const prevQty = item.quantity;
-    const nowIso = new Date().toISOString();
-    await updateInventoryItem(item.id, {
-      quantity: newQty,
-      lastModifiedBy: who,
-      lastModified: nowIso,
+  async function handleSaveQty(item: InvItem, newQty: number, note: string) {
+    const res = await authFetch(apiUrl("/users/setInventoryQuantity"), {
+      method: "PATCH",
+      body: JSON.stringify({ id: item.id, quantity: newQty, note }),
     });
-    // Audit log — non-fatal if the "Inventory Updates" table is missing.
-    try {
-      await addInventoryUpdateLog({
-        partName: item.partName || item.partNumber,
-        partNumber: item.partNumber || "",
-        action: "update",
-        previousQty: prevQty,
-        newQty,
-        change: newQty - prevQty,
-        updatedBy: who,
-        updatedAt: nowIso,
-        note,
-      });
-    } catch (e) {
-      console.error("log write failed", e);
-      toast.warning(t("inventory.manage.logFailed"));
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j?.message || "Update failed");
     }
-    patchItem(item.id, { quantity: newQty, lastModifiedBy: who, lastModified: nowIso });
+    const j = await res.json().catch(() => ({} as any));
+    const updated: InvItem = j?.data ?? { ...item, quantity: newQty };
+    patchItem(item.id, updated);
   }
 
   async function handleEmailReport() {
@@ -105,8 +102,10 @@ export function InventoryManagement() {
     }
     try {
       setEmailing(true);
-      const logs = await getInventoryUpdateLog();
-      await sendInventoryReportEmail(logs, "All Time", who);
+      const res = await authFetch(apiUrl("/users/getInventoryUpdateLog"));
+      const json = await res.json().catch(() => ({} as any));
+      const logs: InventoryUpdateLogRow[] = Array.isArray(json?.data) ? json.data : [];
+      await sendInventoryReportEmail(logs, "All Time");
       toast.success(t("inventory.manage.emailSent", { email: INVENTORY_REPORT_RECIPIENT }));
     } catch (e) {
       console.error(e);
@@ -152,7 +151,6 @@ export function InventoryManagement() {
       {/* ── Add form ── */}
       {showAdd && (
         <AddItemForm
-          who={who}
           onClose={() => setShowAdd(false)}
           onAdded={(it) => { setItems(prev => [it, ...prev]); setShowAdd(false); }}
         />
@@ -205,8 +203,8 @@ function ItemRow({
   item,
   onSave,
 }: {
-  item: InventoryItem;
-  onSave: (item: InventoryItem, qty: number, note: string) => Promise<void>;
+  item: InvItem;
+  onSave: (item: InvItem, qty: number, note: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [qty, setQty] = useState<string>(String(item.quantity));
@@ -313,15 +311,14 @@ function ItemRow({
 }
 
 function AddItemForm({
-  who,
   onAdded,
   onClose,
 }: {
-  who: string;
-  onAdded: (item: InventoryItem) => void;
+  onAdded: (item: InvItem) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const { authFetch } = useAuth();
   const [form, setForm] = useState({
     partName: "", description: "", manufacturer: "", type: "",
     shelfLocation: "", pricePerPart: "", quantity: "0",
@@ -335,40 +332,27 @@ function AddItemForm({
     e.preventDefault();
     if (!form.partName.trim()) { toast.error(t("inventory.manage.nameRequired")); return; }
     const qty = Math.max(0, Number(form.quantity) || 0);
-    const nowIso = new Date().toISOString();
     try {
       setSaving(true);
-      const created = await addInventoryItem({
-        partName: form.partName.trim(),
-        description: form.description.trim(),
-        manufacturer: form.manufacturer.trim(),
-        type: form.type.trim(),
-        shelfLocation: form.shelfLocation.trim(),
-        pricePerPart: Number(form.pricePerPart) || 0,
-        quantity: qty,
-        // remaining fields the type wants but Airtable create ignores:
-        inventoryId: "", totalInventory: qty, qtyCheckedOut: 0, quantityUsed: 0,
-        partNumber: form.partName.trim(), used: 0, partShelfAndRow: "",
-        barcode: "", barcodeUrl: "", googlePartLink: "", googlePartForApp: "",
-        lastModified: nowIso, lastModifiedBy: who,
-        quantityAugust: 0, quantitySept: 0, quantityOct: 0, quantityNov: 0,
-        quantityDecember: 0, quantityJanuary: 0, inventoryUsedAug: 0,
+      const res = await authFetch(apiUrl("/users/addInventoryItem"), {
+        method: "POST",
+        body: JSON.stringify({
+          partName: form.partName.trim(),
+          description: form.description.trim(),
+          manufacturer: form.manufacturer.trim(),
+          type: form.type.trim(),
+          shelfLocation: form.shelfLocation.trim(),
+          pricePerPart: Number(form.pricePerPart) || 0,
+          quantity: qty,
+        }),
       });
-      try {
-        await addInventoryUpdateLog({
-          partName: created.partName || form.partName.trim(),
-          partNumber: created.partNumber || form.partName.trim(),
-          action: "add",
-          previousQty: 0,
-          newQty: qty,
-          change: qty,
-          updatedBy: who,
-          updatedAt: nowIso,
-          note: "New part added",
-        });
-      } catch (err) { console.error("log write failed", err); }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.message || "Add failed");
+      }
+      const j = await res.json().catch(() => ({} as any));
       toast.success(t("inventory.addForm.success"));
-      onAdded(created);
+      onAdded(j?.data as InvItem);
     } catch (e) {
       console.error(e);
       toast.error(t("inventory.manage.addFailed"));

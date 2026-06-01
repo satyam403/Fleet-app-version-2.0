@@ -20,10 +20,13 @@ import {
   buildInspectionReportPdf,
   buildInvoiceReportPdf,
   buildInventoryUpdatesReportPdf,
+  type InventoryUpdateLogRow,
 } from "../services/pdf";
-import { getInventoryUpdateLog, type InventoryUpdateLog } from "../services/airtable";
 import { sendInventoryReportEmail, isEmailConfigured, INVENTORY_REPORT_RECIPIENT } from "../services/inventoryEmail";
 import { Boxes, Mail } from "lucide-react";
+
+// Row shape from GET /users/getInventoryUpdateLog (extends the PDF row with id)
+interface InventoryUpdateLog extends InventoryUpdateLogRow { id: string; }
 
 const API_BASE = apiUrl("/users");
 
@@ -1006,7 +1009,7 @@ function InvoiceReport({ authFetch, userName }: { authFetch: AuthFetch; userName
    quantity, when, and by how much. Generates a PDF and emails it to
    satyam@handatransportation.com.
 ═══════════════════════════════════════════════════ */
-function InventoryUpdatesReport({ userName }: { userName?: string }) {
+function InventoryUpdatesReport({ authFetch, userName }: { authFetch: AuthFetch; userName?: string }) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<Period>("monthly");
   const [mOff, setMOff] = useState(0); const [wOff, setWOff] = useState(0); const [yOff, setYOff] = useState(0);
@@ -1017,11 +1020,10 @@ function InventoryUpdatesReport({ userName }: { userName?: string }) {
 
   useEffect(() => {
     setLoading(true);
-    getInventoryUpdateLog()
-      .then(setLogs)
-      .catch(err => { console.error(err); toast.error(t("inventory.manage.logLoadFailed")); })
+    api<InventoryUpdateLog[]>(authFetch, `${API_BASE}/getInventoryUpdateLog`)
+      .then(d => setLogs(d || []))
       .finally(() => setLoading(false));
-  }, [t]);
+  }, [authFetch]);
 
   const filtered = useMemo(
     () => filterByPeriod(logs, "updatedAt", period, mOff, wOff, yOff),
@@ -1167,7 +1169,7 @@ export default function ReportsPage() {
         <div className="rp-body">
           <div className="rp-body-inner">
             {tab === "inventory" && <InventoryReport authFetch={authFetch} userName={user?.name} />}
-            {tab === "updates" && <InventoryUpdatesReport userName={user?.name} />}
+            {tab === "updates" && <InventoryUpdatesReport authFetch={authFetch} userName={user?.name} />}
             {tab === "workorder" && <WorkOrderReport authFetch={authFetch} userName={user?.name} />}
             {tab === "inspection" && <InspectionReport authFetch={authFetch} userName={user?.name} />}
             {tab === "invoice" && <InvoiceReport authFetch={authFetch} userName={user?.name} />}
