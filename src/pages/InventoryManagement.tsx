@@ -30,6 +30,7 @@ interface InvItem {
   available: number;
   pricePerPart: number;
   shelfLocation: string;
+  photo: string | null;
   lastModifiedBy: string;
   lastModified: string;
 }
@@ -247,6 +248,25 @@ function ItemRow({
 
   return (
     <div className={`im-card ${status}`}>
+      {item.photo ? (
+        <div className="im-photo-wrap">
+          <img
+            src={item.photo}
+            alt={item.partName || item.partNumber || "part"}
+            className="im-photo"
+            loading="lazy"
+            decoding="async"
+            onError={(e) => {
+              const img = e.currentTarget as HTMLImageElement;
+              img.style.display = "none";
+              img.parentElement?.classList.add("im-photo-failed");
+            }}
+          />
+        </div>
+      ) : (
+        <div className="im-photo-ph"><Package size={30} strokeWidth={1.2} /></div>
+      )}
+
       <div className="im-card-top">
         <div className="im-card-icon"><Package size={18} /></div>
         <div className="im-card-id">
@@ -428,9 +448,14 @@ function Style() {
       .im-clear:hover { background: #f0f0f2; }
 
       .im-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-      .im-card { background: var(--card, #fff); border: 1px solid var(--border, rgba(0,0,0,.07)); border-radius: 16px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.04); display: flex; flex-direction: column; gap: 12px; }
+      .im-card { background: var(--card, #fff); border: 1px solid var(--border, rgba(0,0,0,.07)); border-radius: 16px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.04); display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
       .im-card.low { border-left: 3px solid #f59e0b; }
       .im-card.out { border-left: 3px solid #ef4444; }
+      .im-photo-wrap { margin: -16px -16px 2px; height: 160px; background: #f5f5f7; overflow: hidden; }
+      .im-photo-wrap.im-photo-failed { display: none; }
+      .im-photo { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .3s ease; }
+      .im-card:hover .im-photo { transform: scale(1.04); }
+      .im-photo-ph { margin: -16px -16px 2px; height: 92px; background: #f5f5f7; display: flex; align-items: center; justify-content: center; color: #c7c7cc; }
       .im-card-top { display: flex; gap: 12px; align-items: flex-start; }
       .im-card-icon { background: #f0f4ff; color: #1e40af; padding: 9px; border-radius: 10px; flex-shrink: 0; display: flex; }
       .im-card-id { flex: 1; min-width: 0; }
