@@ -102,6 +102,9 @@ const VEHICLE_SIDES = [
   { key: 'passenger-side',  label: 'Passenger Side' },
   { key: 'underneath-rear', label: 'Underneath (from Rear)' },
   { key: 'roll-door-grease', label: 'Roll Door Grease' },
+  { key: 'swing-door-locks', label: 'Swing Door Locks' },
+  { key: 'tandem-check', label: 'Tandem Check (Springs & Tires)' },
+  { key: 'swing-door-gate', label: 'Swing Door / Gate Condition' },
 ] as const;
 
 /* ─────────────────────────────────────────────────────
