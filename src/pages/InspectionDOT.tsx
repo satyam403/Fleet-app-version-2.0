@@ -96,10 +96,12 @@ const STEPS = [
    (front/rear/driver-side/passenger-side) flow through the backend image
    pipeline into the inspection's photo attachments. */
 const VEHICLE_SIDES = [
-  { key: 'front',          label: 'Front' },
-  { key: 'rear',           label: 'Rear / Back' },
-  { key: 'driver-side',    label: 'Driver Side' },
-  { key: 'passenger-side', label: 'Passenger Side' },
+  { key: 'front',           label: 'Front' },
+  { key: 'rear',            label: 'Rear / Back' },
+  { key: 'driver-side',     label: 'Driver Side' },
+  { key: 'passenger-side',  label: 'Passenger Side' },
+  { key: 'underneath-rear', label: 'Underneath (from Rear)' },
+  { key: 'roll-door-grease', label: 'Roll Door Grease' },
 ] as const;
 
 /* ─────────────────────────────────────────────────────
@@ -1112,8 +1114,8 @@ export function Inspection() {
                     <div style={{ marginBottom: 18 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
                         <span style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--foreground)' }}>Vehicle Photos</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: Object.keys(sidePhotos).length === 4 ? '#34c759' : C.accent }}>
-                          {Object.keys(sidePhotos).length}/4
+                        <span style={{ fontSize: 12, fontWeight: 700, color: Object.keys(sidePhotos).length === VEHICLE_SIDES.length ? '#34c759' : C.accent }}>
+                          {Object.keys(sidePhotos).length}/{VEHICLE_SIDES.length}
                         </span>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
@@ -1195,7 +1197,7 @@ export function Inspection() {
                         ['Technician', inspector],
                         ...(dotNumber ? [['DOT #', dotNumber] as [string, string]] : []),
                         ...(vin       ? [['VIN',   vin]        as [string, string]] : []),
-                        ['Photos', `${Object.keys(sidePhotos).length}/4 sides · ${imagePreviews.length} other`],
+                        ['Photos', `${Object.keys(sidePhotos).length}/${VEHICLE_SIDES.length} required · ${imagePreviews.length} other`],
                         ['Date',   new Date().toLocaleDateString()],
                       ])().map(([k, v], i, arr) => (
                         <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
