@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import type { Trailer as TrailerBase } from '../types';
@@ -424,6 +425,7 @@ const inp: React.CSSProperties = {
 export function Inspection() {
   const { t } = useTranslation();
   const { authFetch } = useAuth(); // ✅ hook sirf yahan — component ke andar
+  const [searchParams] = useSearchParams();
 
   const [step,           setStep]           = useState(1);
   const [dir,            setDir]            = useState(1);
@@ -452,6 +454,7 @@ export function Inspection() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef  = useRef<HTMLDivElement>(null);
+  const prefillDone  = useRef(false);
 
 
 
@@ -534,6 +537,22 @@ export function Inspection() {
       .catch(() => toast.error('Failed to load assets'))
       .finally(() => setLoading(false));
   }, [authFetch]); // ✅ dependency
+
+  /* ── Pre-fill asset from ?asset=<number> (e.g. clicked from a Dashboard
+        inspection alert → "Start DOT Inspection"). Runs once, after assets load. ── */
+  useEffect(() => {
+    if (prefillDone.current) return;
+    const assetParam = searchParams.get('asset');
+    if (!assetParam) return;
+    if (!trailers.length && !trucks.length) return; // wait until assets load
+    const norm = (s?: string) => (s ?? '').toString().trim().toLowerCase();
+    const tr = trailers.find(t => norm(t.number) === norm(assetParam));
+    const tk = trucks.find(t => norm(t.number) === norm(assetParam));
+    if (tr)      { prefillDone.current = true; selectAsset({ kind: 'trailer', data: tr }); }
+    else if (tk) { prefillDone.current = true; selectAsset({ kind: 'truck',   data: tk }); }
+    else         { prefillDone.current = true; setSearchQuery(assetParam); } // no match — at least fill the box
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trailers, trucks, searchParams]);
 
   /* ── Close dropdown on outside click ── */
   useEffect(() => {

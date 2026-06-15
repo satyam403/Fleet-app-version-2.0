@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { apiUrl } from "../config";
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -111,7 +112,7 @@ function calculateDaysUntilExpiry(dateStr?: string): number {
   const inspectionDate = new Date(dateStr);
   if (isNaN(inspectionDate.getTime())) return 999;
   const expiryDate = new Date(inspectionDate);
-  expiryDate.setDate(expiryDate.getDate() + 90);
+  expiryDate.setMonth(expiryDate.getMonth() + 3); // 3-month inspection validity
   const today = new Date();
   const diff = expiryDate.getTime() - today.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
@@ -241,6 +242,7 @@ async function subtractInventory(
 
 function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onClose: () => void }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const days = alert.daysUntilExpiry;
   const isExpired = days < 0;
   const isCritical = days <= 7 && days >= 0;
@@ -250,7 +252,7 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
     if (!alert.inspectionDate) return null;
     const d = new Date(alert.inspectionDate);
     if (isNaN(d.getTime())) return null;
-    d.setDate(d.getDate() + 90);
+    d.setMonth(d.getMonth() + 3); // 3-month inspection validity
     return d;
   })();
 
@@ -259,7 +261,7 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
   const statusText = isExpired ? `Expired ${Math.abs(days)} days ago` : days === 0 ? 'Expires today!' : `${days} days remaining`;
 
   const whyMessage = isExpired
-    ? `This ${alert.vehicleType} has exceeded the 90-day inspection validity. It should be taken out of service immediately until a new inspection is completed.`
+    ? `This ${alert.vehicleType} has exceeded the 3-month inspection validity. It should be taken out of service immediately until a new inspection is completed.`
     : isCritical
     ? `Inspection expires in ${days} day${days !== 1 ? 's' : ''}. Schedule an urgent re-inspection to avoid service interruption.`
     : `Inspection will expire on ${expiryDate?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}. Plan ahead to avoid last-minute scheduling.`;
@@ -321,7 +323,7 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
           <div className="modal-detail-item">
             <Calendar size={14} className="detail-icon" />
             <div>
-              <p className="detail-label">Expiry Date (90-day cycle)</p>
+              <p className="detail-label">Expiry Date (3-month cycle)</p>
               <p className="detail-value" style={{ color: statusColor, fontWeight: 700 }}>
                 {expiryDate
                   ? expiryDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -377,6 +379,16 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
 
         <div className="modal-footer">
           <button className="modal-action-btn" onClick={onClose}>Close</button>
+          <button
+            className="modal-action-btn"
+            style={{ background: '#1e40af', color: '#fff', border: 'none' }}
+            onClick={() => {
+              onClose();
+              navigate(`/inspection?asset=${encodeURIComponent(alert.vehicleNumber)}`);
+            }}
+          >
+            Start DOT Inspection
+          </button>
         </div>
       </div>
     </div>
