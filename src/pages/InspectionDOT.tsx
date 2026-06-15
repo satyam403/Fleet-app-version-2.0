@@ -92,6 +92,16 @@ const STEPS = [
   { id: 5, label: 'Review' },
 ];
 
+/* The 4 mandatory vehicle-side photos captured at the Photos step. Filenames
+   (front/rear/driver-side/passenger-side) flow through the backend image
+   pipeline into the inspection's photo attachments. */
+const VEHICLE_SIDES = [
+  { key: 'front',          label: 'Front' },
+  { key: 'rear',           label: 'Rear / Back' },
+  { key: 'driver-side',    label: 'Driver Side' },
+  { key: 'passenger-side', label: 'Passenger Side' },
+] as const;
+
 /* ─────────────────────────────────────────────────────
    FETCH HELPERS — sab authFetch parameter se lenge
    ✅ Hooks yahan nahi — sirf component ke andar
@@ -447,6 +457,8 @@ export function Inspection() {
   const [showDropdown,   setShowDropdown]   = useState(false);
   const [imageFiles,     setImageFiles]     = useState<File[]>([]);
   const [imagePreviews,  setImagePreviews]  = useState<string[]>([]);
+  // 4 mandatory vehicle-side photos: key → { file, preview }
+  const [sidePhotos,     setSidePhotos]     = useState<Record<string, { file: File; preview: string }>>({});
   const [activeSec,      setActiveSec]      = useState(0);
   const [sections,       setSections]       = useState<InspectionSection[]>(
     () => JSON.parse(JSON.stringify(TRAILER_SECTIONS))
@@ -736,6 +748,20 @@ export function Inspection() {
   e.target.value = '';
 }
 
+  async function handleSidePhoto(key: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) { toast.error(`${f.name} is not an image`); return; }
+    if (f.size > 10 * 1024 * 1024)    { toast.error(`${f.name} too large`); return; }
+    const compressed = await compressImage(f);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setSidePhotos(prev => ({ ...prev, [key]: { file: compressed, preview: ev.target?.result as string } }));
+    };
+    reader.readAsDataURL(compressed);
+  }
+
   const totalItems   = sections.reduce((a, s) => a + s.items.length, 0);
   const doneItems    = sections.reduce((a, s) => a + s.items.filter(i => i.status !== '').length, 0);
   const progress     = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0;
@@ -748,6 +774,7 @@ export function Inspection() {
   step === 1 ? !!selectedAsset :
   step === 2 ? !!inspector.trim() :
   step === 3 ? sections.every(s => s.items.every(i => i.status !== '')) :
+  step === 4 ? VEHICLE_SIDES.every(s => !!sidePhotos[s.key]) : // all 4 sides required
   true;
 
   const activeSec_ = sections[activeSec];
@@ -788,6 +815,15 @@ export function Inspection() {
       ));
       imageFiles.forEach(file => formData.append("images", file));
 
+      // ✅ 4 vehicle-side photos — named so they're identifiable among the
+      //    inspection's photo attachments (front / rear / driver-side / passenger-side).
+      for (const s of VEHICLE_SIDES) {
+        const sp = sidePhotos[s.key];
+        if (sp?.file) {
+          formData.append("images", new File([sp.file], `${s.key}.jpg`, { type: "image/jpeg" }));
+        }
+      }
+
       // ✅ Step 3 checklist item photos (base64 → File + compression).
       // Send photos for BOTH pass AND fail items. Filename prefix indicates
       // intent so the backend can differentiate:
@@ -827,7 +863,7 @@ export function Inspection() {
 
       // Reset
       setSelectedAsset(null); setSearchQuery(''); setInspector('');
-      setDotNumber(''); setVin(''); setImageFiles([]); setImagePreviews([]);
+      setDotNumber(''); setVin(''); setImageFiles([]); setImagePreviews([]); setSidePhotos({});
       setSections(JSON.parse(JSON.stringify(TRAILER_SECTIONS)));
       setStep(1); setActiveSec(0);
     } catch (err: any) {
@@ -1070,8 +1106,42 @@ export function Inspection() {
                 {/* ──────── STEP 4: PHOTOS ──────── */}
                 {step === 4 && (
                   <div style={{ maxWidth: 600, margin: '0 auto', width: '100%' }}>
-                    <PageTitle title="Photos" sub="Attach photos of defects or vehicle condition" />
+                    <PageTitle title="Photos" sub="Capture all 4 vehicle sides, plus any defect photos" />
 
+                    {/* ── 4 mandatory vehicle-side photos ── */}
+                    <div style={{ marginBottom: 18 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--foreground)' }}>Vehicle Photos</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: Object.keys(sidePhotos).length === 4 ? '#34c759' : C.accent }}>
+                          {Object.keys(sidePhotos).length}/4
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        {VEHICLE_SIDES.map(s => {
+                          const sp = sidePhotos[s.key];
+                          return (
+                            <label key={s.key} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: `1.5px ${sp ? 'solid #34c759' : 'dashed var(--border)'}`, background: sp ? 'var(--muted)' : 'var(--card)', aspectRatio: '4 / 3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer' }}>
+                              <input type="file" accept="image/*" capture="environment" onChange={e => handleSidePhoto(s.key, e)} style={{ display: 'none' }} />
+                              {sp ? (
+                                <>
+                                  <img src={sp.preview} alt={s.label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  <div style={{ position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: '50%', background: '#34c759', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckCircle2 size={13} /></div>
+                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '4px 8px', textAlign: 'center' }}>{s.label}</div>
+                                </>
+                              ) : (
+                                <>
+                                  <Camera size={22} color={C.accent} />
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{s.label}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Tap to capture</span>
+                                </>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--foreground)', marginBottom: 9 }}>Other / Defect Photos</div>
                     <button onClick={() => fileInputRef.current?.click()}
                       style={{ width: '100%', border: '1.5px dashed var(--border)', background: 'var(--card)', borderRadius: 12, padding: '2.5rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 14, fontFamily: 'inherit', transition: 'all .15s' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = C.accentBorder; e.currentTarget.style.background = C.accentBg; }}
@@ -1125,7 +1195,7 @@ export function Inspection() {
                         ['Technician', inspector],
                         ...(dotNumber ? [['DOT #', dotNumber] as [string, string]] : []),
                         ...(vin       ? [['VIN',   vin]        as [string, string]] : []),
-                        ['Photos', `${imagePreviews.length} attached`],
+                        ['Photos', `${Object.keys(sidePhotos).length}/4 sides · ${imagePreviews.length} other`],
                         ['Date',   new Date().toLocaleDateString()],
                       ])().map(([k, v], i, arr) => (
                         <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
