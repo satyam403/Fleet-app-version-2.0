@@ -301,22 +301,23 @@ const slideVariants = {
 /* ─────────────────────────────────────────────────────
    DATE HELPERS
 ───────────────────────────────────────────────────── */
-function addDays(ds: string | undefined, days: number): string | null {
+// Inspection validity = 3 calendar months (matches the dashboard alerts).
+function addMonthsStr(ds: string | undefined, months: number): string | null {
   if (!ds) return null;
   const d = new Date(ds);
   if (isNaN(d.getTime())) return null;
-  d.setDate(d.getDate() + days);
+  d.setMonth(d.getMonth() + months);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 function isExpiringSoon(ds: string | undefined): boolean {
   if (!ds) return false;
-  const exp = new Date(ds); exp.setDate(exp.getDate() + 30);
+  const exp = new Date(ds); exp.setMonth(exp.getMonth() + 3);
   const diff = (exp.getTime() - Date.now()) / 86400000;
   return diff <= 7 && diff >= 0;
 }
 function isExpired(ds: string | undefined): boolean {
   if (!ds) return false;
-  const exp = new Date(ds); exp.setDate(exp.getDate() + 30);
+  const exp = new Date(ds); exp.setMonth(exp.getMonth() + 3);
   return exp.getTime() < Date.now();
 }
 
@@ -1271,7 +1272,7 @@ export function Inspection() {
 ═══════════════════════════════════════════════════════ */
 function TruckCard({ truck }: { truck: TruckAsset }) {
   const insp = truck.inspectionDate;
-  const exp  = addDays(insp, 30);
+  const exp  = addMonthsStr(insp, 3);
   const soon = isExpiringSoon(insp);
   const over = isExpired(insp);
   const ec   = over ? C.red    : soon ? C.orange    : C.green;
@@ -1335,7 +1336,7 @@ function TruckCard({ truck }: { truck: TruckAsset }) {
 ═══════════════════════════════════════════════════════ */
 function TrailerCard({ trailer }: { trailer: Trailer }) {
   const insp = trailer.inspectionDate;
-  const exp  = addDays(insp, 30);
+  const exp  = addMonthsStr(insp, 3);
   const soon = isExpiringSoon(insp);
   const over = isExpired(insp);
   const ec   = over ? C.red    : soon ? C.orange    : C.green;
