@@ -1978,6 +1978,13 @@ function Style() {
       .insp-summary-chip { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
       .wo-list { display: flex; flex-direction: column; gap: 0; }
       .wo-list-scroll { max-height: 360px; overflow-y: auto; padding-right: 4px; }
+      /* Mobile: the alerts & work-order lists must NOT be their own scroll
+         boxes — nested scrollers trap touch swipes so the whole page feels
+         stuck. Let them expand fully and scroll with the page instead. */
+      @media (max-width: 1023px) {
+        .alert-list.scrollable { max-height: none; overflow: visible; padding-right: 0; }
+        .wo-list-scroll { max-height: none; overflow: visible; padding-right: 0; }
+      }
       .wo-list-scroll::-webkit-scrollbar { width: 6px; }
       .wo-list-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.13); border-radius: 10px; }
       .wo-list-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
