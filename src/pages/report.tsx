@@ -122,12 +122,16 @@ const CSS = `
     .rp-sg{grid-template-columns:1fr 1fr;}
     .rp-vendor-grid{grid-template-columns:1fr;}
     .rp-charts-grid{grid-template-columns:1fr;}
-    .rp-header-inner{gap:6px;}
+    /* Header stacks: title on top, report selector as a full-width swipeable row */
+    .rp-header-inner{gap:8px;flex-direction:column;align-items:stretch;padding:10px 0;}
+    .rp-title{font-size:14px;}
+    .rp-nav{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity;width:100%;}
+    .rp-nav::-webkit-scrollbar{display:none;}
+    .rp-nav-btn{flex-shrink:0;scroll-snap-align:start;padding:9px 12px;font-size:12px;min-height:38px;}
     .rp-filters{padding:10px 10px;gap:6px;}
     .rp-body-inner{padding:12px 8px 80px;}
     .rp-plbl{min-width:70px;font-size:11px;}
     .rp-stat-val{font-size:16px;}
-    .rp-nav-btn{padding:7px 9px;font-size:11px;min-height:36px;}
     /* Tables: bump to readable sizes on phones */
     .rp-tbl{font-size:13px;}
     .rp-tbl th{padding:10px 8px;font-size:11px;}

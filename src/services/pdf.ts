@@ -389,26 +389,83 @@ export interface ReportData {
 
 /* ─────────────────────────────────────────────────
    MAIN PDF GENERATOR FUNCTION
-   Tu isko call kar — window khuleg, print dialog aayega
-   Template change karna ho toh sirf htmlTemplate() badal
+   Renders the report HTML into a hidden A4-width iframe and
+   exports it as a real, downloadable PDF via html2pdf — this
+   works reliably on mobile (the old window.open + print() path
+   was blocked by mobile pop-up blockers and never produced a
+   clean PDF on phones). Falls back to the print window only if
+   html2pdf can't be loaded (e.g. offline).
 ───────────────────────────────────────────────── */
+function sanitizeFilename(s: string): string {
+  return (s || "Report").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_").slice(0, 80);
+}
+
+function loadHtml2Pdf(win: Window): Promise<any> {
+  const w = win as any;
+  if (w.html2pdf) return Promise.resolve(w.html2pdf);
+  return new Promise((resolve, reject) => {
+    const s = win.document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+    s.onload = () => resolve(w.html2pdf);
+    s.onerror = () => reject(new Error("html2pdf load failed"));
+    win.document.head.appendChild(s);
+  });
+}
+
+async function downloadHtmlAsPdf(html: string, filename: string): Promise<void> {
+  // Hidden iframe at A4 CSS pixel width (794px @ 96dpi) so the report's own
+  // fonts/CSS apply in isolation before we rasterize it.
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText =
+    "position:fixed;right:0;bottom:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;z-index:-1;";
+  document.body.appendChild(iframe);
+  try {
+    const idoc = iframe.contentDocument!;
+    idoc.open();
+    idoc.write(html);
+    idoc.close();
+
+    // Give fonts + layout time to settle.
+    await new Promise((r) => setTimeout(r, 500));
+    const fonts = (idoc as any).fonts;
+    if (fonts?.ready) { try { await fonts.ready; } catch { /* ignore */ } }
+
+    const html2pdf = await loadHtml2Pdf(iframe.contentWindow as Window);
+    await html2pdf()
+      .set({
+        margin: [8, 8, 10, 8],
+        filename,
+        image: { type: "jpeg", quality: 0.97 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 794 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], avoid: [".section", ".stat-card", "tr", ".vcard"] },
+      })
+      .from(idoc.body)
+      .save();
+  } finally {
+    setTimeout(() => iframe.remove(), 1500);
+  }
+}
+
 export function generatePdfReport(data: ReportData): void {
   const html = buildHtml(data);
-  const win = window.open("", "_blank", "width=1000,height=750");
-  if (!win) {
-    alert("Pop-up blocked! Please allow pop-ups and try again.");
-    return;
-  }
-  win.document.write(html);
-  win.document.close();
-  // Auto-print after fonts load
-  win.onload = () => {
-    setTimeout(() => {
-      win.print();
-      // Optional: close after print
-      // win.close();
-    }, 800);
-  };
+  const filename =
+    sanitizeFilename(data.meta?.title || "Report") +
+    (data.meta?.period ? "_" + sanitizeFilename(data.meta.period) : "") +
+    ".pdf";
+
+  downloadHtmlAsPdf(html, filename).catch(() => {
+    // Fallback (mainly desktop / offline): open a print window.
+    const win = window.open("", "_blank", "width=1000,height=750");
+    if (!win) {
+      alert("Could not generate the PDF. Please allow pop-ups and try again.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    win.onload = () => setTimeout(() => win.print(), 800);
+  });
 }
 
 /* ─────────────────────────────────────────────────
