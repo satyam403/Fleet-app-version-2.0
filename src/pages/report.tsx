@@ -221,22 +221,39 @@ function pColor(p: string) {
  *  - still returns null so the loading state can resolve gracefully
  */
 async function api<T>(authFetch: AuthFetch, url: string): Promise<T | null> {
-  try {
-    const r = await authFetch(url);
-    // Parse body once; tolerate empty/malformed JSON without crashing.
-    const d = await r.json().catch(() => null) as { data?: T; message?: string } | null;
-    if (!r.ok) {
-      const msg = d?.message || `Request failed (${r.status})`;
-      toast.error(msg);
-      console.error(`[report] ${url} →`, r.status, msg);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Abort a stalled request so a dead connection doesn't hang forever.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    try {
+      const r = await authFetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      // Parse body once; tolerate empty/malformed JSON without crashing.
+      const d = await r.json().catch(() => null) as { data?: T; message?: string } | null;
+      if (!r.ok) {
+        // A non-2xx is a real server answer — surface it, don't retry.
+        const msg = d?.message || `Request failed (${r.status})`;
+        toast.error(msg);
+        console.error(`[report] ${url} →`, r.status, msg);
+        return null;
+      }
+      return (d?.data ?? null) as T | null;
+    } catch (err) {
+      clearTimeout(timer);
+      // Network-level failure (offline blip, timeout, dropped connection).
+      // Retry a couple of times with backoff before giving up — a flaky mobile
+      // network shouldn't instantly fail the whole report.
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((res) => setTimeout(res, attempt * 700));
+        continue;
+      }
+      toast.error("Network error — check your connection and try again.");
+      console.error(`[report] ${url} → (after ${attempt} attempts)`, err);
       return null;
     }
-    return (d?.data ?? null) as T | null;
-  } catch (err) {
-    toast.error("Network error — check your connection");
-    console.error(`[report] ${url} →`, err);
-    return null;
   }
+  return null;
 }
 
 function filterByPeriod<T extends { [key: string]: any }>(list: T[], dateKey: string, period: Period, mOff: number, wOff: number, yOff: number): T[] {
