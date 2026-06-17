@@ -501,7 +501,14 @@ async function handleSave() {
   try {
     const data = await savePurchaseOrder(
       authFetch,
-      selected.map(i => ({ name: i.name.trim(), quantity: i.quantity })),
+      // ✅ Naam ko existing inventory ke EXACT naam pe snap karo.
+      // Backend sirf exact "Part Name" pe match karta hai — agar scan ka naam
+      // zara bhi alag hua to nayi row ban jaati thi. findMatch wahi match hai
+      // jo UI mein green "✓ In stock" badge dikhata hai.
+      selected.map(i => {
+        const m = findMatch(i.name);
+        return { name: m ? m.name : i.name.trim(), quantity: i.quantity };
+      }),
       lastFile,   // ✅ file pass karo — req.file ab controller mein milega
     );
 
