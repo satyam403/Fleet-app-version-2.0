@@ -107,10 +107,23 @@ const API_BASE = apiUrl("/users");
 
 /* ─────────────────────────── Helpers ─────────────────────────── */
 
+/**
+ * Parse a date string as LOCAL time. A bare "YYYY-MM-DD" (how inspection dates
+ * are stored) is otherwise parsed by `new Date()` as UTC midnight, which then
+ * renders one day earlier in US timezones — so the dashboard showed the wrong
+ * (off-by-one) inspection date. Splitting it into local Y/M/D fixes that.
+ */
+function parseLocalDate(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr).trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function calculateDaysUntilExpiry(dateStr?: string): number {
-  if (!dateStr) return 999;
-  const inspectionDate = new Date(dateStr);
-  if (isNaN(inspectionDate.getTime())) return 999;
+  const inspectionDate = parseLocalDate(dateStr);
+  if (!inspectionDate) return 999;
   const expiryDate = new Date(inspectionDate);
   expiryDate.setMonth(expiryDate.getMonth() + 3); // 3-month inspection validity
   const today = new Date();
@@ -249,9 +262,8 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
   const isWarning = days > 7 && days <= 30;
 
   const expiryDate = (() => {
-    if (!alert.inspectionDate) return null;
-    const d = new Date(alert.inspectionDate);
-    if (isNaN(d.getTime())) return null;
+    const d = parseLocalDate(alert.inspectionDate);
+    if (!d) return null;
     d.setMonth(d.getMonth() + 3); // 3-month inspection validity
     return d;
   })();
@@ -314,8 +326,8 @@ function InspectionDetailModal({ alert, onClose }: { alert: InspectionAlert; onC
             <div>
               <p className="detail-label">Last Inspection Date</p>
               <p className="detail-value">
-                {alert.inspectionDate
-                  ? new Date(alert.inspectionDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                {parseLocalDate(alert.inspectionDate)
+                  ? parseLocalDate(alert.inspectionDate)!.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                   : '—'}
               </p>
             </div>
@@ -1169,9 +1181,9 @@ function InspectionAlertCard({ alert, onClick }: { alert: InspectionAlert; onCli
         <span className="alert-vehicle">{alert.vehicleNumber}</span>
         {alert.ownerName && <span className="alert-owner"> · {alert.ownerName}</span>}
         <span className="alert-date">
-          {new Date(alert.inspectionDate).toLocaleDateString('en-US', {
+          {parseLocalDate(alert.inspectionDate)?.toLocaleDateString('en-US', {
             month: 'short', day: 'numeric', year: 'numeric',
-          })}
+          }) ?? '—'}
         </span>
       </div>
       <span className={`alert-badge ${cls}`}>{label}</span>
